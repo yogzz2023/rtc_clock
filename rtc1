@@ -1,0 +1,84 @@
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <linux/rtc.h>
+#include <sys/ioctl.h>
+#include <signal.h>
+#include <stdlib.h>
+
+volatile int running = 1;
+
+// Signal handler to stop the program
+void handle_signal(int signum) {
+    running = 0;
+}
+
+int main() {
+    int fd;
+    struct rtc_time rtc_tm;
+
+    // Register signal handler for graceful termination
+    signal(SIGINT, handle_signal);
+
+    // Open the RTC device
+    fd = open("/dev/rtc0", O_RDONLY);
+    if (fd == -1) {
+        perror("Failed to open /dev/rtc0");
+        return 1;
+    }
+
+    printf("Setting RTC to generate interrupts at 4 Hz...\n");
+
+    // Set the frequency to 4 Hz
+    if (ioctl(fd, RTC_IRQP_SET, 4) == -1) {
+        perror("Failed to set RTC frequency");
+        close(fd);
+        return 1;
+    }
+
+    // Enable periodic interrupts
+    if (ioctl(fd, RTC_PIE_ON, 0) == -1) {
+        perror("Failed to enable periodic interrupts");
+        close(fd);
+        return 1;
+    }
+
+    printf("Real-Time Clock (RTC) interrupt-based display started. Press Ctrl+C to stop.\n");
+
+    unsigned long data;
+    while (running) {
+        // Wait for an interrupt
+        if (read(fd, &data, sizeof(unsigned long)) == -1) {
+            perror("Failed to read RTC interrupt");
+            break;
+        }
+
+        // Read the current time
+        if (ioctl(fd, RTC_RD_TIME, &rtc_tm) == -1) {
+            perror("Failed to read RTC time");
+            break;
+        }
+
+        // Print the RTC time
+        printf("\rCurrent RTC time: %04d-%02d-%02d %02d:%02d:%02d",
+               rtc_tm.tm_year + 1900,
+               rtc_tm.tm_mon + 1,
+               rtc_tm.tm_mday,
+               rtc_tm.tm_hour,
+               rtc_tm.tm_min,
+               rtc_tm.tm_sec);
+
+        fflush(stdout); // Ensure the output is displayed immediately
+    }
+
+    // Disable periodic interrupts
+    if (ioctl(fd, RTC_PIE_OFF, 0) == -1) {
+        perror("Failed to disable periodic interrupts");
+    }
+
+    // Close the RTC device
+    close(fd);
+    printf("\nRTC program terminated.\n");
+
+    return 0;
+}
