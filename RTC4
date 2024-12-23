@@ -1,0 +1,79 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/rtc.h>
+#include <signal.h>
+#include <errno.h>
+
+// Signal handler for RTC interrupts
+volatile int interrupt_count = 0;
+void rtc_interrupt_handler(int signum)
+{
+    if (signum == SIGIO) {
+        interrupt_count++;
+        printf("RTC Interrupt #%d triggered\n", interrupt_count);
+    }
+}
+
+int main()
+{
+    const char *rtc_device = "/dev/rtc"; // RTC device file
+    int rtc_fd;
+
+    // Open the RTC device
+    rtc_fd = open(rtc_device, O_RDONLY);
+    if (rtc_fd == -1) {
+        perror("Error opening RTC device");
+        return EXIT_FAILURE;
+    }
+
+    // Set the desired frequency to 4 Hz
+    if (ioctl(rtc_fd, RTC_IRQP_SET, 4) == -1) {
+        perror("Error setting RTC frequency");
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    // Enable periodic interrupts
+    if (ioctl(rtc_fd, RTC_PIE_ON, 0) == -1) {
+        perror("Error enabling periodic interrupts");
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    // Set up the signal handler for RTC interrupts
+    signal(SIGIO, rtc_interrupt_handler);
+
+    // Allow the process to receive SIGIO signals
+    if (fcntl(rtc_fd, F_SETOWN, getpid()) == -1) {
+        perror("Error setting process owner");
+        ioctl(rtc_fd, RTC_PIE_OFF, 0);
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    // Enable asynchronous notification
+    if (fcntl(rtc_fd, F_SETFL, O_ASYNC) == -1) {
+        perror("Error enabling asynchronous notification");
+        ioctl(rtc_fd, RTC_PIE_OFF, 0);
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    printf("Waiting for RTC interrupts (press Ctrl+C to exit)...\n");
+
+    // Wait for interrupts (loop indefinitely until the user exits)
+    while (1) {
+        pause(); // Wait for the signal
+    }
+
+    // Disable periodic interrupts
+    if (ioctl(rtc_fd, RTC_PIE_OFF, 0) == -1) {
+        perror("Error disabling periodic interrupts");
+    }
+
+    close(rtc_fd);
+    return EXIT_SUCCESS;
+}
