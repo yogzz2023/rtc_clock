@@ -1,0 +1,133 @@
+Below is an example of a C program to configure and use an RTC (Real-Time Clock) device to generate interrupts at a frequency of 4 Hz and display a real-time clock. The program utilizes the `ioctl` system call to configure the RTC frequency and handle interrupts.
+
+### Full C Code
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/rtc.h>
+#include <unistd.h>
+#include <time.h>
+#include <signal.h>
+
+#define RTC_DEVICE "/dev/rtc0" // Adjust the RTC device path as necessary
+
+volatile int keep_running = 1;
+
+// Signal handler to gracefully exit on Ctrl+C
+void handle_signal(int signal) {
+    keep_running = 0;
+}
+
+int main() {
+    int rtc_fd;
+    struct rtc_time rtc_tm;
+    unsigned long frequency = 4; // 4 Hz frequency
+
+    // Open the RTC device
+    rtc_fd = open(RTC_DEVICE, O_RDONLY);
+    if (rtc_fd == -1) {
+        perror("Error opening RTC device");
+        return EXIT_FAILURE;
+    }
+
+    // Set the RTC to generate interrupts at 4 Hz
+    if (ioctl(rtc_fd, RTC_IRQP_SET, frequency) == -1) {
+        perror("Error setting RTC frequency");
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    // Enable periodic interrupts
+    if (ioctl(rtc_fd, RTC_PIE_ON, 0) == -1) {
+        perror("Error enabling RTC periodic interrupts");
+        close(rtc_fd);
+        return EXIT_FAILURE;
+    }
+
+    printf("RTC configured to generate interrupts at %lu Hz.\n", frequency);
+    printf("Press Ctrl+C to exit.\n");
+
+    // Set up signal handling for graceful exit
+    signal(SIGINT, handle_signal);
+
+    while (keep_running) {
+        unsigned long data;
+
+        // Wait for an interrupt
+        if (read(rtc_fd, &data, sizeof(unsigned long)) == -1) {
+            perror("Error reading RTC interrupt");
+            break;
+        }
+
+        // Get the current RTC time
+        if (ioctl(rtc_fd, RTC_RD_TIME, &rtc_tm) == -1) {
+            perror("Error reading RTC time");
+            break;
+        }
+
+        printf("RTC Time: %02d:%02d:%02d\n", rtc_tm.tm_hour, rtc_tm.tm_min, rtc_tm.tm_sec);
+    }
+
+    // Disable periodic interrupts before exiting
+    if (ioctl(rtc_fd, RTC_PIE_OFF, 0) == -1) {
+        perror("Error disabling RTC periodic interrupts");
+    }
+
+    close(rtc_fd);
+    printf("Program terminated.\n");
+
+    return EXIT_SUCCESS;
+}
+```
+
+---
+
+### Explanation of the Code:
+
+1. **RTC Device Path**: The RTC device is typically located at `/dev/rtc0`. Ensure the correct path is used on your system.
+   
+2. **Frequency Setting**: The desired frequency is set using the `RTC_IRQP_SET` ioctl command.
+
+3. **Enable Periodic Interrupts**: The `RTC_PIE_ON` command enables periodic interrupts.
+
+4. **Interrupt Handling**:
+   - The program uses the `read` system call to wait for an interrupt.
+   - Each interrupt corresponds to a tick, triggered at the configured frequency.
+
+5. **RTC Time Reading**: The current RTC time is fetched using the `RTC_RD_TIME` ioctl command and displayed in HH:MM:SS format.
+
+6. **Signal Handling**: The program uses a signal handler to gracefully exit on receiving a SIGINT (Ctrl+C).
+
+7. **Disable Periodic Interrupts**: The `RTC_PIE_OFF` command disables interrupts when the program exits.
+
+---
+
+### Compilation and Execution:
+
+1. Compile the program with:
+   ```bash
+   gcc -o rtc_program rtc_program.c
+   ```
+
+2. Run the program as root (required for accessing RTC):
+   ```bash
+   sudo ./rtc_program
+   ```
+
+---
+
+### Expected Output:
+The program will display the RTC time updated at 4 Hz:
+```
+RTC configured to generate interrupts at 4 Hz.
+Press Ctrl+C to exit.
+RTC Time: 12:34:56
+RTC Time: 12:34:57
+RTC Time: 12:34:58
+...
+```
+
+Make sure your system has RTC support enabled and the RTC device available.
