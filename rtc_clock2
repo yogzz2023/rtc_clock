@@ -1,0 +1,113 @@
+Here is a C program that demonstrates how to use an RTC (Real-Time Clock) device to generate interrupts at a frequency of 4 Hz. The program uses `ioctl` system calls to configure the RTC device and handles RTC interrupts. The example assumes you are working with a Linux system with an RTC device (e.g., `/dev/rtc` or `/dev/rtc0`).
+
+### Code:
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/rtc.h>
+#include <errno.h>
+#include <time.h>
+
+int main() {
+    int rtc_fd;             // File descriptor for the RTC device
+    const char *rtc_device = "/dev/rtc0"; // RTC device path (adjust as needed)
+    unsigned long frequency = 4; // Frequency in Hz
+    unsigned long data;
+
+    // Open the RTC device
+    rtc_fd = open(rtc_device, O_RDONLY);
+    if (rtc_fd == -1) {
+        perror("Failed to open RTC device");
+        return 1;
+    }
+
+    printf("RTC device %s opened successfully.\n", rtc_device);
+
+    // Set the RTC frequency
+    if (ioctl(rtc_fd, RTC_IRQP_SET, frequency) == -1) {
+        perror("Failed to set RTC frequency");
+        close(rtc_fd);
+        return 1;
+    }
+    printf("RTC frequency set to %lu Hz.\n", frequency);
+
+    // Enable RTC periodic interrupts
+    if (ioctl(rtc_fd, RTC_PIE_ON, 0) == -1) {
+        perror("Failed to enable RTC periodic interrupts");
+        close(rtc_fd);
+        return 1;
+    }
+    printf("RTC periodic interrupts enabled.\n");
+
+    printf("Waiting for interrupts. Press Ctrl+C to exit.\n");
+
+    while (1) {
+        // Wait for an RTC interrupt
+        if (read(rtc_fd, &data, sizeof(unsigned long)) == -1) {
+            if (errno == EINTR) {
+                // Interrupted by a signal
+                continue;
+            }
+            perror("Failed to read RTC interrupt");
+            break;
+        }
+
+        // Display a timestamp for each interrupt
+        time_t now = time(NULL);
+        printf("RTC interrupt received at %s", ctime(&now));
+    }
+
+    // Disable RTC periodic interrupts
+    if (ioctl(rtc_fd, RTC_PIE_OFF, 0) == -1) {
+        perror("Failed to disable RTC periodic interrupts");
+    } else {
+        printf("RTC periodic interrupts disabled.\n");
+    }
+
+    // Close the RTC device
+    close(rtc_fd);
+    printf("RTC device closed.\n");
+
+    return 0;
+}
+```
+
+### Explanation:
+1. **Open RTC Device**:
+   The program opens the RTC device (e.g., `/dev/rtc0`) for read-only operations.
+
+2. **Set RTC Frequency**:
+   The `RTC_IRQP_SET` ioctl command is used to set the frequency of periodic interrupts to 4 Hz.
+
+3. **Enable Interrupts**:
+   The `RTC_PIE_ON` ioctl command enables periodic interrupts.
+
+4. **Read Interrupts**:
+   The program uses the `read` system call to wait for and acknowledge RTC interrupts. Each interrupt is accompanied by a timestamp.
+
+5. **Disable Interrupts and Close Device**:
+   Before exiting, the program disables periodic interrupts using `RTC_PIE_OFF` and closes the RTC device.
+
+### Compilation:
+Compile the program using `gcc`:
+```bash
+gcc -o rtc_interrupt rtc_interrupt.c
+```
+
+### Execution:
+Run the program with sufficient privileges to access the RTC device:
+```bash
+sudo ./rtc_interrupt
+```
+
+### Output:
+The program will display timestamps for each interrupt received at a frequency of 4 Hz until interrupted by the user (e.g., pressing `Ctrl+C`).
+
+### Notes:
+1. Ensure you have permissions to access the RTC device or run the program as a superuser.
+2. Check the correct RTC device path for your system (`/dev/rtc`, `/dev/rtc0`, etc.).
+3. If your system does not have an RTC device, you may need to load the appropriate kernel modules (e.g., `rtc_cmos`).
